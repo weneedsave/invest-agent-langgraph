@@ -1,0 +1,53 @@
+graph:
+ """g (StateGraph对象)
+├─ state_schema → InvestState  # 记住state的模板
+├─ nodes → {"collect": collect函数, ...}  # 你的节点注册表
+└─ edges → [(START,"collect"), ...]       # 流转连线"""
+
+
+
+ """
+    g.nodes = {
+    "collect": collect函数对象,
+    "analyze": analyze函数对象,
+    "compare": compare函数对象,
+    "report": report函数对象
+}
+"""
+
+"""2. START 和 END 是 LangGraph 预定义的特殊节点。START
+    表示"流程从这里开始"，END 表示"到这里结束"。它们不是真实节点，是标记。
+    g.edges = [
+    (START, "collect"),
+    ("collect", "analyze"),
+    ("analyze", "compare"),
+    ("compare", "report"),
+    ("report", END)
+]
+"""
+
+先命名,再自定义执行流程
+add_node("节点名字", 函数本身)
+add_edge 完全不看 Python 函数叫什么，**只认 add_node 登记的字符串 key**。
+
+
+5---建main.py
+ 1. sys.argv 是命令行参数列表。sys.argv[0] 是脚本名，sys.argv[1]
+  是第一个参数（即股票代码）。所以 python -m invest_agent.main 600519
+  里，sys.argv[1] 就是 "600519"。
+  2. sys.exit(1) 表示"异常退出"（1 是错误码，0
+  是正常）。当用户没传参数时，打印用法说明然后退出。
+  3. result['report_path'] —— 你现在能从最终 state
+  里取任何字段，因为之前验证过状态都合并好了。
+
+
+ 2.sys 模块用来获取**终端命令行参数**、主动退出程序
+
+ 3.7. `code = sys.argv[1]   取出终端传入的第一个参数，赋值给变量 code，就是股票代码字符串
+
+ 4---
+ `app.invoke(初始状态)`：**给机器喂入初始数据，完整跑一遍整个工作流，直到走到 END 结束，返回最终 state**
+ `app.invoke({"code": code})` → 构造初始 state,只填充一个code后面再collect中根据股票代码收集数据
+
+ 5---test_flow,测试链路能否跑通
+ report 节点函数是关键,获取某股票的文件路径
