@@ -51,3 +51,18 @@ add_edge 完全不看 Python 函数叫什么，**只认 add_node 登记的字符
 
  5---test_flow,测试链路能否跑通
  report 节点函数是关键,获取某股票的文件路径
+
+
+ 阶段一到此结束,
+  - LangGraph 的 5 个核心概念：State / Node / Edge / Graph(图纸),详情去看graph的内容 /invoke(接受传入的数据没传入的填充None)
+  - 状态自动合并：每个节点只返回部分更新，最终 state 自动拼全
+  - src 布局 + pyproject + editable 安装的现代 Python 工程姿势
+  - 节点边界设计：数据采集是唯一碰数据源的，其他节点只读文件
+  - `StateGraph(g)`：图纸，画流水线；
+  - `compile()`：按照图纸造出真实流水线机器 `app`；
+  - `app.invoke(初始数据)`：把原料丢进流水线，按下开关，完整跑完生产，产出成品 (result)。
+
+
+
+  阶段二
+  1.建akshare探针获取股票信息
