@@ -84,3 +84,5 @@ add_edge 完全不看 Python 函数叫什么，**只认 add_node 登记的字符
 
 
 阶段5
+对clean函数测试在test,建立虚假数据在数据内放入垃圾看清洗效果
+利用assert函数,绝对值函数abs(),极小数字1e-9,

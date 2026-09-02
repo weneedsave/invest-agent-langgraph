@@ -1,5 +1,3 @@
-from importlib.resources import contents
-
 from invest_agent.graph import build_graph
 
 
@@ -11,7 +9,7 @@ def test_graph_runs_end_to_end():
 
 def test_state_fields_filled():
     app = build_graph()
-    result = app.invoke({"code" : "000001"})
+    result = app.invoke({"code" : "600519"})
     #2.关键字节点全部填充完毕
     assert result["raw_data_path"] is not None
     assert result["metrics"] is not None
