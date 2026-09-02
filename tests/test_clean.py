@@ -18,3 +18,17 @@ def test_clean_profit_selects_and_renames():
       assert result["revenue"] == 100.0
       assert result["report_date"] == "2026-06-30"
       assert "无关列" not in result
+
+
+def test_clean_profit_missing_column_returns_none():
+    # 模拟银行：没有 OPERATE_COST 列
+    df = pd.DataFrame({
+        "REPORT_DATE": ["2026-06-30"],
+        "OPERATE_INCOME": [100.0],
+        "NETPROFIT": [30.0],
+        "PARENT_NETPROFIT": [28.0],
+        "BASIC_EPS": [2.0],
+    })
+    result = clean_profit(df)
+    assert result["operate_cost"] is None
+    assert result["revenue"] == 100.0

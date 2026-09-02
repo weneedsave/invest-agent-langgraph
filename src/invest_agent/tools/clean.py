@@ -10,9 +10,20 @@ FIELD_MAP = {
 
 
 def clean_profit(df : pd.DataFrame) -> dict:
-    selected = df.rename(columns=FIELD_MAP)[list(FIELD_MAP.values())]
 
-    #取第一行最新(按位取第零行)
-    latest = selected.iloc[0]
-    #转成dict返回
-    return latest.to_dict()
+    result = {}
+    for raw_col, std_col in FIELD_MAP.items():
+        if raw_col in df.columns:
+            val = df[raw_col].iloc[0]
+            if not pd.isna(val):  #如果不为空
+                if raw_col == "REPORT_DATE":  #如果是日期
+                    result[std_col] = val
+                else:
+                    result[std_col] = float(val)
+            else:
+                result[std_col] = None
+        else:
+            result[std_col] = None
+    return result
+
+
