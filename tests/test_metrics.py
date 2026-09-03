@@ -13,9 +13,5 @@ def test_net_margin_normal():
     assert abs(net_margin(30, 100) - 0.3) < 1e-9  # 30/100 = 0.3两个关键点
 
 
-def test_gross_margin_zero_revenue():
-    assert gross_margin(0, 40) is None  # 分母为0 →None
-
-
-def test_net_margin_normal():
-    assert abs(net_margin(30, 100) - 0.3) < 1e-9  # 30/100 =0.3
+def test_net_margin_zero_revenue():
+    assert net_margin(30, 0) is None
