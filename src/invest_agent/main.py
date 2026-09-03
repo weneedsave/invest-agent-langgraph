@@ -1,5 +1,5 @@
 import sys
-
+from langgraph.checkpoint.sqlite import SqliteSaver
 from invest_agent.graph import build_graph
 
 def main() :
@@ -9,8 +9,16 @@ def main() :
         sys.exit(1)
     code = sys.argv[1]
 
-    app = build_graph()
-    result = app.invoke({"code":code})
+    #
+    with SqliteSaver.from_conn_string("checkpoints.sqlite") as checkpointer:
+        app = build_graph(checkpointer=checkpointer)
+
+        thread_id = f"invest-{code}"
+
+        result = app.invoke(
+            {"code":code},
+            config={"configurable": {"thread_id": thread_id}}
+        )
 
     print(f"\n===分析完成===")
     print(f"报告路径:{result['report_path']}")
