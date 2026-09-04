@@ -4,8 +4,6 @@ def report_full(state: dict) -> dict:
     code = state["code"]
     metrics = state["metrics"]
     peers = state["peers"]
-
-
     #拼接markdown文本
     lines = [
         f"# {code} 投资简报",
