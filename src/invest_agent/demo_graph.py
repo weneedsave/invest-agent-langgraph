@@ -6,8 +6,13 @@ from invest_agent.agents.workers import (
 )
 
 
-def build_demo_graph():
-    g = StateGraph(MessagesState)
+class DemoState(MessagesState):
+    code: str
+    next: str
+
+
+def build_demo_graph(store = None):
+    g = StateGraph(DemoState)
 
     # 注册节点：supervisor + 3 个专家
     g.add_node("supervisor", supervisor)
@@ -31,4 +36,4 @@ def build_demo_graph():
     g.add_edge("行情分析师", "supervisor")
     g.add_edge("新闻舆情师", "supervisor")
 
-    return g.compile()
+    return g.compile(store = store)

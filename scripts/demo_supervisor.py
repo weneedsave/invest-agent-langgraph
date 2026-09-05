@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 from invest_agent.demo_graph import build_demo_graph
 from invest_agent.vfs.filesystem import read_json
 from invest_agent.metrics import gross_margin,net_margin
+from langgraph.store.sqlite import SqliteStore
 
 
 
@@ -53,12 +54,14 @@ def main():
     question = input("请输入你的投研问题: ")
     data_text = format_profit_data(code)
     prompt = f"【财报数据】\n{data_text}\n\n【用户问题】\n{question}"
-    app  = build_demo_graph()
-    result = app.invoke({"messages":[HumanMessage(content=prompt)]})
 
-    print("\n === 最终对话 ===")
-    for msg in result["messages"]:
-        print(f"\n[{msg.type}] {msg.content}")
+    with SqliteStore.from_conn_string("memory.sqlite")as store:
+        app = build_demo_graph(store=store)
+        result = app.invoke({"messages":[HumanMessage(content=prompt)],"code":code},)
+
+        print("\n === 最终对话 ===")
+        for msg in result["messages"]:
+                print(f"\n[{msg.type}] {msg.content}")
 
 if __name__ == "__main__":
     main()

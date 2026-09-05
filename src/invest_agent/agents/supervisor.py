@@ -1,31 +1,53 @@
 from typing import Literal, TypedDict
 from invest_agent.agents.llm import get_llm
-from langchain_core.messages import SystemMessage
+from invest_agent.memory import recall, save_conclusion
+from langchain_core.messages import SystemMessage, AIMessage
 
 
 class RouterResponse(TypedDict):
-    next: Literal["财报分析师","行情分析师","新闻舆情师","FINISH"]
+    next: Literal["财报分析师", "行情分析师", "新闻舆情师", "FINISH"]
 
-SYSTEM_PROMPT="""
-你是多智能体的总调度 Supervisor，负责根据用户原始查询，选择下一个要执行的专家智能体。
-只能从下面列表选择，输出严格遵守结构化格式，next字段仅允许取值：["财报分析师", "行情分析师", "新闻舆情师", "FINISH"]
 
-决策规则：
-1. 如果用户需要财务报表、盈利能力、毛利率、净利润、资产负债、财报解读 → next = "财报分析师"
-2. 如果用户需要股价走势、K线、历史行情、估值、涨跌幅分析 → next = "行情分析师"
-3. 如果用户需要公司新闻、公告、舆论、事件影响 → next = "新闻舆情师"
-4. 当已经收集足够信息，所有必要专家已经完成分析，可以回复用户，任务结束 → next = "FINISH"
+SYSTEM_PROMPT = """
+你是投研任务总调度supervisor。
+根据用户的投研问题，选择交给对应的专家执行：
+- 财报分析师：负责财务指标、利润表、毛利率净利率分析
+- 行情分析师：负责股价、走势相关分析
+- 新闻舆情师：负责行业新闻、公告舆情分析
 
-注意：
-- 不要编造信息，不要自己回答业务问题，只做路由决策。
-- 参考state中messages历史，判断哪些专家已经执行过，避免重复调用同一个agent。
-- 只输出结构化JSON，不要额外解释、不要自然语言闲聊。
-    """
+规则：
+1. 一次只选择一个agent执行；
+2. 专家输出完成后再次回到你这里；
+3. 所有必要分析全部完成之后输出 FINISH；
+4. 不编造没有提供的原始数据。
+"""
 
-def supervisor(state) -> RouterResponse:
 
-    llm = get_llm().with_structured_output(RouterResponse,method="function_calling")
+def supervisor(state) -> dict:
+    code = state["code"]
 
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]+state["messages"]
+    # -------- ① 查记忆：是否已经分析过这只股票 --------
+    past = recall(code)
+    if past is not None:
+        # 命中历史记忆，直接返回历史结论，走向结束
+        return {
+            "messages": [AIMessage(content=f"（引用历史分析，无需重新分析）\n{past}")],
+            "next": "FINISH",
+        }
+
+    # -------- ② 没有历史记忆 → LLM做路由决策 --------
+    llm = get_llm().with_structured_output(RouterResponse, method="function_calling")
+    messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
     response = llm.invoke(messages)
-    return {"next": response["next"]}
+    next_step = response["next"]
+
+    # -------- ③ 如果决定FINISH，提取最后一条专家消息存入记忆 --------
+    if next_step == "FINISH":
+        ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
+        if ai_messages:
+
+            conclusion = ai_messages[-1].content
+
+            save_conclusion(code, conclusion)
+
+    return {"next": next_step}
