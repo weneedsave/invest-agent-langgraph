@@ -1,0 +1,199 @@
+invest_agent 项目学习笔记
+用途：个人复习、面试快速回顾；记录工程流程、LangGraph 核心概念、踩坑点、关键代码片段。
+项目：基于 LangGraph 的投研多智能体助手
+
+==================== 前置：LangGraph 五大核心概念 ====================
+
+1. State（状态）：InvestState (TypedDict)，整个图的数据容器，定义所有流转字段。节点返回局部更新，框架自动合并 state。
+2. Node（节点）：业务函数，通过 add_node ("节点字符串名", 函数对象) 注册；图只认注册的字符串 key，不在乎 python 函数本名。
+3. Edge（边）：add_edge () 定义节点流转；add_conditional_edges () 做条件分支路由。
+4. Graph（StateGraph）：只是一张图纸，只做登记，不会执行；保存 nodes 注册表、edges 流转关系、state_schema。
+结构示意：
+g = StateGraph (InvestState)
+g.nodes  # {"collect": collect 函数，"analyze": analyze,...}
+g.edges  # [(START,"collect"), ("collect","analyze"), ...]
+   - START：虚拟标记，流程起点，不是真实节点
+   - END：虚拟标记，流程结束标记，不是真实节点
+5. compile() / invoke()
+   - g.compile ()：根据图纸编译，生成真正可运行的机器对象 app
+   - app.invoke (初始状态)：传入初始数据，完整跑完整条流水线直到 END，返回最终 state。未传入的 state 字段自动填充为 None。
+
+工程模式：src 布局 + pyproject.toml editable 可编辑安装。
+架构约束：collect 节点是唯一访问外部数据源的节点；其余节点只读取本地文件 /state，不碰网络。
+
+==================== 阶段一：基础流水线搭建 ====================
+
+1. 构建图流程
+   1. add_node ("collect", collect) 注册节点
+   2. add_edge (START, "collect") 设置起点
+   3. 串联各个节点，最后 add_edge ("report", END)
+   4. app = g.compile()
+2. main.py 命令行入口
+   - sys.argv：终端命令行参数列表
+     - sys.argv [0]：脚本本身名字
+     - sys.argv [1]：用户传入第一个参数，本项目就是股票代码，例：python -m invest_agent.main 600519
+   - sys.exit (1)：异常退出，错误码 1；0 代表正常退出。
+   - 运行：app.invoke ({"code": code})，只传入股票 code，后续 collect 节点根据 code 拉取数据。
+   - 运行结束后，直接从返回结果取 state 字段：result ["report_path"] 拿到报告路径。
+3. 测试 test_flow
+端到端测试，验证整条 graph 链路可以正常跑完，report 节点正常输出文件路径。
+
+阶段一输出：可以输入股票代码，完整跑完采集 - 清洗 - 指标 - 报告基础链路。
+
+==================== 阶段二：数据采集、清洗、文件 VFS 层 ====================
+
+1. AKShare 数据采集流程
+   1. code_to_symbol ()：A 股代码转换交易所前缀 SH/SZ/BJ
+   2. 调用 akshare 接口拿到财报 DataFrame
+   3. 调用 clean_profit (df) 做数据清洗
+2. VFS 文件抽象层
+目的：把路径、文件读写收口封装，业务代码不要到处写硬编码路径字符串。
+   - save_json ()：把内存字典 dump 写入磁盘 json 文件
+   - read_json ()：读取磁盘 json 到内存
+   - os.path.dirname (path)：拿到文件路径的父目录，用于创建目录
+3. clean_profit 清洗逻辑
+   - FIELD_MAP 字典：{原始列名：标准化字段名}
+   - FIELD_MAP.values () 拿到全部标准化输出字段
+   - raw_col in df.columns 判断列是否存在
+   - df [列名].iloc [0] 取表格第一行
+   - pd.isna () 判断是否为空值
+   - 区分 REPORT_DATE 字符串；其余财务字段转为 python 原生 float，消除 numpy.float64 类型。
+4. 测试要点（clean & metrics）
+   1. 构造包含垃圾、缺失列的假数据，测试清洗鲁棒性
+   2. 浮点数禁止直接 ==，使用绝对值容差：abs (a-b) < 1e-9
+   3. 真值表 GOLDEN_600519：手工标定标准答案，独立业务代码，用来评测清洗、指标计算正确性。
+   4. 独立 eval 评测脚本：复现完整业务流水线，逐条输出 PASS/FAIL，方便调试定位指标 bug。
+
+关键公式：abs (actual-expected) <= rtol * abs (expected) 相对容差比对浮点数。
+
+==================== 阶段三：断点续跑 checkpointer ====================
+重点区分：checkpointer vs store（高频面试）
+
+1. checkpointer（检查点 SqliteSaver / InMemorySaver）
+   - 作用：保存流程图执行快照、节点执行轨迹、state 快照，实现断点续跑、中断恢复。
+   - 记录：thread_id、checkpoint_id、哪些节点已经跑完、state 数据。
+   - 传入：g.compile (checkpointer=xxx)
+   - 关注点：流程执行到哪一步。
+2. store（业务长期记忆 InMemoryStore / SqliteStore）
+   - 作用：存放业务数据，历史分析报告、向量记忆，和流程图执行轨迹无关。
+   - 能力：put /get/search，支持 namespace 隔离、语义向量检索。
+   - 传入：g.compile (store=xxx)
+   - 关注点：业务知识库、历史业务数据。
+
+关键坑点
+
+1. get_store () 只能在 graph 的 node 节点内部调用。main、普通外部函数不能调用，没有运行上下文会报错。
+外部如果要操作 store，直接使用 with 拿到的 store 变量，不要调用 get_store ()。
+2. interrupt_before=["analyze"]：在指定节点运行前暂停流程，人工介入后继续 invoke 恢复运行。
+3. SqliteStore 磁盘数据库：必须放在 with SqliteStore.from_conn_string ("memory.sqlite") as store: 缩进内；app.invoke () 必须写在 with 内部；离开 with 自动关闭数据库连接。
+4. compile (store=store) 传入的是对象实例，不是文件名字符串。
+
+使用方式
+with SqliteStore.from_conn_string ("memory.sqlite") as store:
+app = build_graph (store=store)
+result = app.invoke (inputs, config={"configurable":{"thread_id":"xxx"}})
+
+invoke 内部自动完成快照保存；每执行完一个节点，checkpointer 保存一次快照。
+
+==================== 阶段四：条件路由、重试、银行股分支 ====================
+
+1. 节点增加重试策略：
+g.add_node ("collect", collect, retry_policy=RetryPolicy (max_attempts=3))
+应对 akshare 网络抖动异常，最多重试 3 次。
+2. 条件路由 add_conditional_edges
+   - 路由函数 route_report (state)，返回分支字符串 "full" / "bank"
+   - path_map 字典：{"full":"report_full", "bank":"report_bank"}，把路由返回值映射到真实节点名字。
+   - 两个报告节点分别指向 END。
+3. python 异常关键点：raise Exception () 抛出异常，本函数后续 return 不会执行，直接向外抛出。
+4. 单元测试：mock flaky_collect 模拟前两次抛异常，验证节点重试逻辑是否生效。
+
+==================== 阶段五：Supervisor-Worker 多智能体接入大模型 ====================
+架构
+
+- supervisor 总管大模型：负责决策、调度，决定调用哪个 worker 专家
+- worker 专家节点：财务专家、行情专家、新闻专家，各司其职。
+
+LLM 工程要点
+
+1. with_structured_output (ResponseModel)：强制大模型输出结构化 JSON，避免手动字符串切割解析。
+2. 模型坑：DeepSeek V4 Thinking 模式与 tool_choice 存在冲突。
+3. LLM 幻觉问题：大模型看不到原始文件会编造数字；解决方案：把真实清洗后业务数据喂入 prompt 上下文。
+4. worker 越界抢活：通过 prompt 明确分工边界约束。
+5. .env 管理密钥，不要把 api key 硬编码进代码，防止提交 git 泄露。
+
+store 记忆使用
+
+# 在节点内部
+
+store = get_store ()
+past = recall (code) # 根据股票 code 读取历史记忆
+
+# 筛选 state 消息列表，只拿 AI 输出消息
+
+ai_messages = [m for m in state ["messages"] if isinstance (m, AIMessage)]
+ai_messages [-1].content # 获取 AI 输出文本
+
+前期先用固定模拟数据调试链路；链路跑通后再替换为真实 akshare 行情新闻数据。
+
+记忆升级：store.search 语义检索
+不再只做 code 精确匹配；利用 embedding 做向量检索，检索同行业历史分析作为上下文给大模型。
+
+==================== 阶段六：测试体系与项目收尾 ====================
+测试分层
+
+1. 单元 pytest：
+   - 工具函数测试 clean、metrics、路由函数
+   - graph 链路测试、重试机制测试、store 测试
+   sqlite 相关测试用内存临时数据库，不要污染业务磁盘文件。
+2. eval 独立评测脚本：输入真实 csv，对比 GOLDEN_600519 真值表，输出可读 PASS/FAIL 报告，用于调试指标。
+
+可选扩展（优先级排序）
+
+1. 【最高收益】补齐 worker 空壳：接入 akshare 真实行情、新闻接口，worker 不再返回模拟字符串，完成多智能体业务闭环。
+2. 【次选】开启 store.search 语义向量记忆，把检索结果送入 LLM 上下文。
+3. 【锦上添花】Streamlit 网页前端，仅做演示，对底层技术面试加分有限。
+
+==================== 高频踩坑清单（面试复习重点） ====================
+
+1. checkpointer 保存流程轨迹；store 保存业务记忆，二者用途完全不同。
+2. get_store () 仅可在 node 节点内部调用。
+3. SqliteStore 必须在 with 上下文内使用，invoke 不能写在 with 外部。
+4. 浮点数比较禁止直接 ==，使用相对容差公式。
+5. route_report 返回的字符串，必须和 path_map 字典 key 一一对应。
+6. 大模型返回的局部变量（例如 route_report 返回值 /llm 输出 json），必须 return 回 graph，state 才会更新。
+7. 节点只返回增量更新，LangGraph 自动合并 state，不要每次返回完整 state 字典。
+
+==================== 扩展：真实数据接入（方案A vs 方案B） ====================
+
+方案 A：入口预取数据，塞进 prompt（被动）
+- 入口 demo_supervisor.py 调 AKShare 读行情/新闻，格式化后拼进 prompt
+- 行情：ak.stock_zh_a_hist(symbol, period='daily', adjust='qfq')，列名中文（日期/收盘/涨跌幅等）
+- 新闻：ak.stock_news_em(symbol)，列名（新闻标题/新闻内容/发布时间等）
+- 必须 try/except 容错：AKShare 接口不稳（常 ConnectionError），失败返回"获取失败"文本，不崩
+
+方案 B：LLM 自主调工具（主动 tool calling）
+- 只改行情分析师，其余保持方案 A，A/B 两种架构并存
+- @tool 装饰器：docstring 是给 LLM 看的"工具说明书"，写清楚参数含义
+- llm.bind_tools([工具])：告诉 LLM 有哪些工具可用
+- 手写工具循环：
+    while ai_msg.tool_calls:            # LLM 还想调工具就循环
+        执行工具 → ToolMessage(content=结果, tool_call_id=...) 回填
+        ai_msg = llm.invoke(base + conversation)  # 喂回结果再问
+- code 参数注入：LLM 决定"要不要调"，code 由节点从 state["code"] 取，拼进 SystemMessage
+
+【核心踩坑】工具失败死循环
+- 现象：工具 except 返回"失败"字符串（非抛异常），LLM 误以为"工具成功但数据是失败"，反复重试
+- 解法两层：
+  1. 失败返回文本加"不要再调用工具重试"（语义引导 LLM 停手，治本）
+  2. 循环加 max_loop=3 兜底（机制硬性防死循环，治标）
+
+【核心踩坑】记忆过期
+- memory.sqlite 缓存旧结论（含过时/错误），调试新代码时会被历史记忆掩盖
+- 短期：调试前 del memory.sqlite
+- 长期（未做）：记忆加版本/时间戳，过期自动失效
+
+【prompt 松紧平衡】
+- 太松 → 幻觉、越界；太紧 → 该干不干（有数据也说"没数据"）
+- 经验：把"没数据"条件精确化（只有完全没字段才算缺），放宽"新闻"定义（资金动向也算素材）
+
+ 如何在项目中使用InvestState？

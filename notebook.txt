@@ -87,3 +87,66 @@ add_edge 完全不看 Python 函数叫什么，**只认 add_node 登记的字符
 对clean函数测试在test,建立虚假数据在数据内放入垃圾看清洗效果
 利用assert函数,绝对值函数abs(),极小数字1e-9,
 我们在clean函数里转换了float的转换,防止出现pandas的float64出现报错
+
+
+
+
+
+
+
+
+
+
+
+#阶段三,
+1.我们对graph进行了修改,加入了checkpointer,方便从中途退出后能继旭,而不是从头再来
+2.修改main,开启快照存档,app.invoke函数内部会执行存档与读挡,先读然后每执行完一个模块存档一次
+#interrupt_before参数,设置中断的位置
+
+
+
+#阶段四
+
+1.修改graph增加bank系列的特殊处理
+g.add_node("collect",collect,retry_policy=RetryPolicy(max_attempts=3)),防止网络问题导致报错,最多重试3次
+2.调用`route_report(state)`判断：
+- 如果返回`"full"` → 跳转到图节点 `"report_full"`
+- 如果返回`"bank"` → 跳转到图节点 `"report_bank"`
+3测试:raise 抛出异常之后，后面 return 完全不会执行
+
+
+
+
+#阶段五
+大模型准备接入,准备3个不同分工的ai,在同一个对话里对数据进行分析
+with_structured_output(RouterResponse)使用该函数让大模型强制输出json,不需要手动切割找结果
+super文件是总管大模型,负责调度,woker是三个工作ai
+多智能体出现幻觉和多次调用,先用固定数据暂时解决最后在进行调整
+1. DeepSeek V4 的模型名升级 + Thinking 模式与tool_choice 冲突；
+2. LLM 幻觉（看不到文件就编数字）→ 喂数据解决；
+3. worker 越界（抢别的专家的活）→ 边界 prompt 解决；
+4. .env 防泄露的正确姿势。
+
+my_store = InMemoryStore()
+app = build_demo_graph(store=my_store) # 把store实例交给compile
+
+app.invoke({"code":"600519"}, config={"configurable":{"thread_id":"t1"}})
+        ↓
+进入supervisor(state, config)
+        ↓
+store = get_store() # 获取编译时传入的 my_store
+        ↓
+past = recall(code)
+ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
+遍历取出ai的消息
+.content用来提取字符串
+
+
+#最后阶段,进行测试
+测试结束
+
+
+
+
+扩展1
+为新闻接入真实数据完善项目,使用akshare
