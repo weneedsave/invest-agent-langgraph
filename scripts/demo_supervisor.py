@@ -83,11 +83,9 @@ def main():
     question = input("请输入你的投研问题: ")
 
     profit_text = format_profit_data(code)
-    market_text = format_market_data(code)
     news_text = format_news_data(code)
     prompt = (
         f"【财报数据】\n{profit_text}\n\n"
-        f"{market_text}\n\n"
         f"{news_text}\n\n"
         f"【用户问题】\n{question}"
     )

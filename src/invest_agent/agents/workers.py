@@ -1,5 +1,6 @@
-from langchain_core.messages import AIMessage, SystemMessage
 from invest_agent.agents.llm import get_llm
+from langchain_core.messages import AIMessage,SystemMessage, ToolMessage   # 加 ToolMessage
+from invest_agent.tools.market_tool import get_stock_hist
 
 # 三个专家的角色提示词
 FINANCIAL_PROMPT = """
@@ -11,15 +12,18 @@ FINANCIAL_PROMPT = """
 """
 
 MARKET_PROMPT = """
-你是行情分析师专家。
-你的职责：**只做股价、行情、估值分析，禁止输出财务报表、新闻舆情。**
-没有行情原始数据就如实说明，禁止编造股价、市值、PE数字。
- 如果消息列表中没有股价、行情、估值数据，你必须直接输出
-  一句话:【当前没有行情数据，无法进行行情分析】，
-  然后立即结束，
-  不要输出任何其他内容。
-  严禁在没有行情数据时转而分析财报数据——财报分析是财报分
-  析师的职责。
+你是行情分析师专家，负责分析股价、行情、估值。
+  你有一个工具 get_stock_hist
+  可以获取股票的历史行情数据。
+  规则：
+  1. 当用户需要行情/股价/估值分析时，必须调用
+  get_stock_hist
+  工具获取数据，不要凭空编造行情数字。
+  2. 拿到工具返回的数据后，基于真实数据分析（走势、
+  涨跌幅、波动等）。
+  3. 如果工具调用失败（返回失败信息），就如实说明"行
+  情数据获取失败，无法分析"。
+  4. 禁止越界讨论财务报表、新闻舆情。
 """
 
 NEWS_PROMPT = """
@@ -43,5 +47,25 @@ def make_worker(system_prompt: str):
 
 
 financial_analyst = make_worker(FINANCIAL_PROMPT)
-market_analyst = make_worker(MARKET_PROMPT)
+def market_analyst(state) -> dict:
+    code = state["code"]
+    llm = get_llm().bind_tools([get_stock_hist])
+    sys_msg = SystemMessage(content=MARKET_PROMPT + f"\n\n当前要分析的股票代码：{code}")
+    base = [sys_msg] + state["messages"]
+    ai_msg = llm.invoke(base)
+    conversation = [ai_msg]
+    loop_cnt = 0
+    max_loop = 3
+    while ai_msg.tool_calls and loop_cnt < max_loop:
+        tool_msgs = []
+        for tc in ai_msg.tool_calls:
+            result = get_stock_hist.invoke(tc)
+            tool_msgs.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        conversation.extend(tool_msgs)
+        ai_msg = llm.invoke(base + conversation)
+        conversation.append(ai_msg)
+        loop_cnt += 1
+    return {"messages": [ai_msg]}
+
+
 news_analyst = make_worker(NEWS_PROMPT)
