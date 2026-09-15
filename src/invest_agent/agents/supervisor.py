@@ -20,11 +20,15 @@ SYSTEM_PROMPT = """
 2. 专家输出完成后再次回到你这里；
 3. 所有必要分析全部完成之后输出 FINISH；
 4. 不编造没有提供的原始数据。
+5. 如果某位专家已经明确说明该类数据无法获取，视为该任务已经完成，
+   不要重复派遣同一位专家，直接转向其他还没做过的分析或输出 FINISH。
 """
 
 
 def supervisor(state) -> dict:
     code = state["code"]
+    # 第一次进 supervisor 时 "tried" 这个 key 还不存在（不是 None），必须给默认值
+    tried = state.get("tried", [])
 
     # -------- ① 查记忆：是否已经分析过这只股票 --------
     past = recall(code)
@@ -41,7 +45,13 @@ def supervisor(state) -> dict:
     response = llm.invoke(messages)
     next_step = response["next"]
 
-    # -------- ③ 如果决定FINISH，提取最后一条专家消息存入记忆 --------
+    # -------- ③ 守卫：LLM 又想派已派过的专家 → 强制收尾 --------
+    # 专家回一句"数据不可用"时，LLM 容易误判成"任务还没完成"而反复重派。
+    # prompt 里的规则 5 只是缓解（路由本质有随机性），这里才是硬性兜底。
+    if next_step in tried:
+        next_step = "FINISH"
+
+    # -------- ④ 如果决定FINISH，提取最后一条专家消息存入记忆 --------
     if next_step == "FINISH":
         ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
         if ai_messages:
@@ -50,4 +60,7 @@ def supervisor(state) -> dict:
 
             save_conclusion(code, conclusion)
 
-    return {"next": next_step}
+    # FINISH 不是专家，不记进 tried
+    if next_step == "FINISH":
+        return {"next": next_step, "tried": tried}
+    return {"next": next_step, "tried": tried + [next_step]}

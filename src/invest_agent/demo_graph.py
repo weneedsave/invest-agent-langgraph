@@ -9,6 +9,7 @@ from invest_agent.agents.workers import (
 class DemoState(MessagesState):
     code: str
     next: str
+    tried: list[str]      # 已派遣过的专家名，supervisor 用它防止重复派遣
 
 
 def build_demo_graph(store = None):
