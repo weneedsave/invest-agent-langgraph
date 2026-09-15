@@ -2,7 +2,6 @@ import akshare as ak
 from invest_agent.vfs.filesystem import save_json, workspace_dir
 from invest_agent.tools.clean import clean_profit
 
-
 def code_to_symbol(code: str)->str:
     """
     A股代码转交易所前缀symbol

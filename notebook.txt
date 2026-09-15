@@ -150,3 +150,38 @@ ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
 
 扩展1
 为新闻接入真实数据完善项目,使用akshare
+
+
+
+总流程图
+用户执行 python main.py 600519
+        ↓
+【1. 入口层】main.py 主函数
+        ↓ 接收股票代码 → 调用数据预取
+【2. 数据预取层】data_fetcher.py（方案A）
+   ├─ 拉取财报数据 → 清洗格式化
+   └─ 拉取新闻数据 → 清洗格式化
+        ↓ 组装初始State
+【3. 图编排层】graph.py
+   ├─ 加载SqliteCheckpointer
+   ├─ 注册Supervisor + 三个Worker节点
+   └─ 编译StateGraph得到可执行graph
+        ↓ graph.invoke(初始状态)
+【4. 调度层】supervisor.py 主管Agent
+        ↓ 拆解任务 → 分发给三个专家
+【5. 执行层】三个Worker并行/串行执行
+   ├─ 财报分析师 → 基于预取财报数据输出分析
+   ├─ 新闻分析师 → 基于预取新闻数据输出舆情
+   └─ 行情分析师 → 【方案B ReAct循环】
+          ├─ LLM判断是否需要行情
+          ├─ 输出tool_calls调用get_stock_hist
+          ├─ 执行工具 → ToolMessage回填
+          └─ 最多循环3次 → 输出行情分析
+        ↓ 结果返回Supervisor
+【6. 汇总层】supervisor.py
+        ↓ 合并三段分析 → 生成完整投研报告
+【7. 输出层】main.py
+        ├─ 打印报告到控制台
+        ├─ 写入output/目录Markdown文件
+        └─ 运行状态持久化到memory.sqlite
+

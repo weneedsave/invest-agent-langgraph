@@ -6,6 +6,6 @@ def gross_margin(revenue: float,operate_cost:float)-> float|None:
 
 def net_margin(net_profit:float,revenue:float)-> float|None:
     #净利率 = 净利润 / 营收
-    if revenue is None or revenue == 0:
+    if net_profit is None or revenue is None or revenue == 0:
         return None
     return net_profit / revenue

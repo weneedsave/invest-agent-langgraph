@@ -1,5 +1,5 @@
 from invest_agent.agents.llm import get_llm
-from langchain_core.messages import AIMessage,SystemMessage, ToolMessage   # 加 ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from invest_agent.tools.market_tool import get_stock_hist
 
 # 三个专家的角色提示词
@@ -59,8 +59,9 @@ def market_analyst(state) -> dict:
     while ai_msg.tool_calls and loop_cnt < max_loop:
         tool_msgs = []
         for tc in ai_msg.tool_calls:
-            result = get_stock_hist.invoke(tc)
-            tool_msgs.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            # invoke(tc) 传完整 tool_call dict 时，返回的已经是 ToolMessage，
+            # 直接 append，不要再 str() 二次包装（否则 content 会带 name=... 的 repr 噪音）
+            tool_msgs.append(get_stock_hist.invoke(tc))
         conversation.extend(tool_msgs)
         ai_msg = llm.invoke(base + conversation)
         conversation.append(ai_msg)
